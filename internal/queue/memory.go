@@ -38,7 +38,10 @@ func (mq *memoryQueue) Enqueue(ctx context.Context, j *job.Job) error {
 
 func (mq *memoryQueue) Dequeue(ctx context.Context) (*job.Job, error) {
 	select {
-	case j := <-mq.jobs:
+	case j, ok := <-mq.jobs:
+		if !ok {
+			return nil, ErrQueueClosed
+		}
 		return j, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
