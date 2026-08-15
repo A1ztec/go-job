@@ -35,3 +35,7 @@ func New(t string, payload []byte) *Job {
 		CreatedAt:   time.Now(),
 	}
 }
+
+func (j *Job) CanRetry() bool {
+	return j.Attempts < j.MaxAttempts
+}
