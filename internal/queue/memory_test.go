@@ -2,6 +2,9 @@ package queue
 
 import (
 	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,4 +40,66 @@ func TestMemoryQueue_DequeueRespectsContext(t *testing.T) {
 		t.Fatalf("i was expecting and error got nil")
 	}
 
+}
+func TestMemoryQueue_EnqueueAfterShutdown(t *testing.T) {
+	q := NewMemoryQueue(100)
+	ctx := context.Background()
+	j := job.New("test job", nil)
+
+	err := q.Shutdown(ctx)
+	if err != nil {
+		t.Errorf("failed")
+	}
+
+	err = q.Enqueue(ctx, j)
+
+	if !errors.Is(err, ErrQueueClosed) {
+		t.Errorf("got %v, want ErrQueueClosed", err)
+	}
+}
+
+func TestMemoryQueue_Concurrent(t *testing.T) {
+	q := NewMemoryQueue(20)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	var count atomic.Int32
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			j := job.New("test", nil)
+			_ = q.Enqueue(ctx, j)
+		}(i)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := q.Dequeue(ctx)
+			if err == nil {
+				count.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if count.Load() != 10 {
+		t.Errorf("dequeue %v expects 10", count.Load())
+	}
+}
+
+func TestMemoryQueue_DoubleShutDown(t *testing.T) {
+	q := NewMemoryQueue(2)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := q.Shutdown(ctx)
+			if err != nil {
+				t.Errorf("expecting the q to shudown without errors")
+			}
+		}()
+	}
+	wg.Wait()
 }
