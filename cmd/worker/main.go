@@ -63,7 +63,9 @@ func initRedisClient() *redis.Client {
 		Addr:                  addr,
 		Password:              "",
 		DB:                    0,
-		ContextTimeoutEnabled: true,
+		ContextTimeoutEnabled: true, //makes blocking commands (like BRPop) respect ctx cancellation/timeout —
+		// without this, they ignore ctx entirely and only stop via their own
+		// Redis-level timeout parameter (or never, if that's set to 0)
 	})
 	for {
 		err := client.Ping(ctx).Err()
