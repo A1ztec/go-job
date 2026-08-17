@@ -11,14 +11,21 @@ import (
 	"github.com/A1ztec/go-job/internal/job"
 	"github.com/A1ztec/go-job/internal/queue"
 	"github.com/A1ztec/go-job/internal/worker"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
+var addr string = os.Getenv("REDIS_ADDR")
+
 func main() {
+	if addr == "" {
+		addr = "localhost:6379"
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var wg sync.WaitGroup
-	q := queue.NewMemoryQueue(3)
+	client := initRedisClient()
+	q := queue.NewRedisQueue(client, "test")
 	r := worker.NewRegistry()
 	handler := job.HandlerFunc(func(ctx context.Context, j *job.Job) error {
 		log.Info().Str("job_id", j.ID).Msg("processed job")
@@ -44,4 +51,30 @@ func main() {
 		p.Start(ctx)
 	}()
 	wg.Wait()
+	if err := q.Shutdown(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to shutdown queue cleanly")
+	}
+}
+
+func initRedisClient() *redis.Client {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	client := redis.NewClient(&redis.Options{
+		Addr:                  addr,
+		Password:              "",
+		DB:                    0,
+		ContextTimeoutEnabled: true,
+	})
+	for {
+		err := client.Ping(ctx).Err()
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			log.Fatal().Err(err).Msgf("could not connect to redis at %s", addr)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return client
 }
