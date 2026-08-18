@@ -3,8 +3,10 @@ package queue
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/A1ztec/go-job/internal/job"
+	"github.com/rs/zerolog/log"
 )
 
 type memoryQueue struct {
@@ -56,5 +58,15 @@ func (mq *memoryQueue) Shutdown(ctx context.Context) error {
 	}
 	close(mq.jobs)
 	mq.closed = true
+	return nil
+}
+
+func (mq *memoryQueue) ScheduleAfter(ctx context.Context, j *job.Job, d time.Duration) error {
+	time.AfterFunc(d, func() {
+		enqueueCtx := context.Background()
+		if err := mq.Enqueue(enqueueCtx, j); err != nil {
+			log.Error().Err(err).Str("job_id", j.ID).Msg("failed to enqueue delayed job")
+		}
+	})
 	return nil
 }

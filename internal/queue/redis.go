@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/A1ztec/go-job/internal/job"
 	"github.com/redis/go-redis/v9"
@@ -57,4 +58,21 @@ func (rq *RedisQueue) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("failed to shutDown the connection: %w", err)
 	}
 	return nil
+}
+
+func (rq *RedisQueue) ScheduleAfter(ctx context.Context, j *job.Job, at time.Duration) error {
+	absTime := time.Now().Add(at)
+	p, err := json.Marshal(j)
+	if err != nil {
+		return fmt.Errorf("marshal job: %w", err)
+	}
+	err = rq.client.ZAdd(ctx, rq.delayedKey(), redis.Z{Member: p, Score: float64(absTime.Unix())}).Err()
+	if err != nil {
+		return fmt.Errorf("schedule job: %w", err)
+	}
+	return nil
+}
+
+func (rq *RedisQueue) delayedKey() string {
+	return rq.key + ":delayed"
 }
