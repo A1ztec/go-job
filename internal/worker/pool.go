@@ -2,9 +2,11 @@ package worker
 
 import (
 	"context"
-	"log"
 	"sync"
 
+	"github.com/rs/zerolog/log"
+
+	"github.com/A1ztec/go-job/internal/job"
 	"github.com/A1ztec/go-job/internal/queue"
 )
 
@@ -47,7 +49,7 @@ func (p *Pool) work(ctx context.Context, wId int) {
 		}
 		handler, ok := p.registry.Get(j.Type)
 		if !ok {
-			log.Printf("worker %d: no handler for job type %q", wId, j.Type)
+			log.Info().Int("worker_id", wId).Str("job_type", j.Type).Msg("no handler for job type")
 			continue
 		}
 		func() {
@@ -57,8 +59,32 @@ func (p *Pool) work(ctx context.Context, wId int) {
 				}
 			}()
 			if err := handler.Handle(ctx, j); err != nil {
-				log.Printf("worker %d: job %s failed: %v", wId, j.ID, err)
+				log.Error().Int("worker_id", wId).Str("job_id", j.ID).Err(err).Msg("job failed")
+				p.handleFailure(ctx, j)
 			}
 		}()
 	}
+}
+
+func (p *Pool) handleFailure(ctx context.Context, j *job.Job) {
+	j.Attempts++
+	if !j.CanRetry() {
+		log.Error().Str("job_id", j.ID).Msg("job exhausted retries, moving to DLQ")
+		// move to dlq
+		return
+	}
+	if !(j.BackOff > 0) {
+		err := p.queue.Enqueue(ctx, j)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to re-enqueue job")
+			return
+		}
+		log.Info().Int("remaining_attempts", j.MaxAttempts-j.Attempts).Msg("job re-enqueued for retry")
+		return
+	}
+	if err := p.queue.ScheduleAfter(ctx, j, j.BackOff); err != nil {
+		log.Error().Err(err).Msg("failed to schedule job for retry")
+		return
+	}
+	log.Info().Dur("backoff", j.BackOff).Msg("job scheduled for delayed retry")
 }
