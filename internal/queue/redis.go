@@ -11,6 +11,18 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const promoteScript = `
+    local due = redis.call('ZRANGEBYSCORE' , KEYS[1] , '-inf' , ARGV[1])
+	if #due == 0 then
+	 return{}
+	end
+	for i , job in ipairs(due) do 
+	 redis.call('ZREM' , KEYS[1] , job)
+	 redis.call('LPUSH' , KEYS[2] , job)
+	 end
+	 return due
+`
+
 type RedisQueue struct {
 	client *redis.Client
 	key    string
@@ -25,21 +37,23 @@ func NewRedisQueue(client *redis.Client, key string) *RedisQueue {
 	}
 }
 
-func (rq *RedisQueue) Enqueue(ctx context.Context, j *job.Job) error {
-	log.Info().Msg("enter the enqueue for redis queue")
+func (rq *RedisQueue) push(ctx context.Context, key string, j *job.Job) error {
 	p, err := json.Marshal(j)
 	if err != nil {
 		return fmt.Errorf("marshal job: %w", err)
 	}
-	err = rq.client.LPush(ctx, rq.key, p).Err()
+	err = rq.client.LPush(ctx, key, p).Err()
 	if err != nil {
 		return fmt.Errorf("push job to queue: %w", err)
 	}
 	return nil
 }
 
+func (rq *RedisQueue) Enqueue(ctx context.Context, j *job.Job) error {
+	return rq.push(ctx, rq.key, j)
+}
+
 func (rq *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
-	log.Info().Msg("enter the dequeue from redis queue")
 	var j job.Job
 	s, err := rq.client.BRPop(ctx, 0, rq.key).Result()
 	if err != nil {
@@ -73,6 +87,33 @@ func (rq *RedisQueue) ScheduleAfter(ctx context.Context, j *job.Job, at time.Dur
 	return nil
 }
 
+func (rq *RedisQueue) SendToDLQ(ctx context.Context, j *job.Job) error {
+	return rq.push(ctx, rq.dlqKey(), j)
+}
+
+func (rq *RedisQueue) dlqKey() string {
+	return rq.key + ":dlq"
+}
+
 func (rq *RedisQueue) delayedKey() string {
 	return rq.key + ":delayed"
+}
+
+func (rq *RedisQueue) RunPromoter(ctx context.Context, interval time.Duration) {
+	script := redis.NewScript(promoteScript)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			err := script.Run(ctx, rq.client, []string{rq.delayedKey(), rq.key}, time.Now().Unix()).Err()
+			if err != nil {
+				log.Error().Err(err).Msg("failed to promote scheduled jobs, will retry next interval")
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
