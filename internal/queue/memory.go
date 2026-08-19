@@ -12,6 +12,8 @@ import (
 type memoryQueue struct {
 	jobs   chan *job.Job
 	mu     sync.Mutex
+	dlq    []*job.Job
+	dlqMu  sync.Mutex
 	closed bool
 }
 
@@ -68,5 +70,12 @@ func (mq *memoryQueue) ScheduleAfter(ctx context.Context, j *job.Job, d time.Dur
 			log.Error().Err(err).Str("job_id", j.ID).Msg("failed to enqueue delayed job")
 		}
 	})
+	return nil
+}
+
+func (mq *memoryQueue) SendToDLQ(ctx context.Context, j *job.Job) error {
+	mq.dlqMu.Lock()
+	defer mq.dlqMu.Unlock()
+	mq.dlq = append(mq.dlq, j)
 	return nil
 }
