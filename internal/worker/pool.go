@@ -70,7 +70,9 @@ func (p *Pool) handleFailure(ctx context.Context, j *job.Job) {
 	j.Attempts++
 	if !j.CanRetry() {
 		log.Error().Str("job_id", j.ID).Msg("job exhausted retries, moving to DLQ")
-		// move to dlq
+		if err := p.queue.SendToDLQ(ctx, j); err != nil {
+			log.Error().Err(err).Str("job_id", j.ID).Msg("failed to send job to DLQ — job may be lost")
+		}
 		return
 	}
 	if !(j.BackOff > 0) {

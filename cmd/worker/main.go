@@ -50,6 +50,12 @@ func main() {
 		defer wg.Done()
 		p.Start(ctx)
 	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		q.RunPromoter(ctx, time.Second)
+	}()
 	wg.Wait()
 	if err := q.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("failed to shutdown queue cleanly")
