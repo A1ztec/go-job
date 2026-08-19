@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -25,7 +26,7 @@ func main() {
 	defer stop()
 	var wg sync.WaitGroup
 	client := initRedisClient()
-	q := queue.NewRedisQueue(client, "test")
+	q := queue.NewRedisQueue(client, fmt.Sprintf("test-%d", time.Now().UnixNano()))
 	r := worker.NewRegistry()
 	handler := job.HandlerFunc(func(ctx context.Context, j *job.Job) error {
 		log.Info().Str("job_id", j.ID).Msg("processed job")
@@ -33,17 +34,17 @@ func main() {
 	})
 	r.Register("test", handler)
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 30; i++ {
-			time.Sleep(2 * time.Second)
-			j := job.New("test", nil)
-			err := q.Enqueue(ctx, j)
-			if err != nil {
-				log.Error().Err(err).Msg("error happen in enqueue a job")
-			}
-		}
-	}()
+	// go func() {
+	// 	defer wg.Done()
+	// 	for i := 0; i < 30; i++ {
+	// 		time.Sleep(2 * time.Second)
+	// 		j := job.New("test", nil)
+	// 		err := q.Enqueue(ctx, j)
+	// 		if err != nil {
+	// 			log.Error().Err(err).Msg("error happen in enqueue a job")
+	// 		}
+	// 	}
+	// }()
 	p := worker.NewPool(q, r, 3)
 	wg.Add(1)
 	go func() {

@@ -103,3 +103,43 @@ func TestMemoryQueue_DoubleShutDown(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestMemoryQueue_SendToDLQ(t *testing.T) {
+	q := NewMemoryQueue(10)
+	ctx := context.Background()
+	j := job.New("test", nil)
+
+	err := q.SendToDLQ(ctx, j)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(q.dlq) != 1 {
+		t.Fatalf("got %d jobs in DLQ, want 1", len(q.dlq))
+	}
+	if q.dlq[0].ID != j.ID {
+		t.Errorf("got job ID %q in DLQ, want %q", q.dlq[0].ID, j.ID)
+	}
+}
+
+func TestMemoryQueue_SendToDLQ_Concurrent(t *testing.T) {
+	q := NewMemoryQueue(10)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			j := job.New("test", nil)
+			if err := q.SendToDLQ(ctx, j); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(q.dlq) != 10 {
+		t.Errorf("got %d jobs in DLQ, want 10", len(q.dlq))
+	}
+}

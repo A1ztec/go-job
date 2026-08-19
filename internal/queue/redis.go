@@ -11,18 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const promoteScript = `
-    local due = redis.call('ZRANGEBYSCORE' , KEYS[1] , '-inf' , ARGV[1])
-	if #due == 0 then
-	 return{}
-	end
-	for i , job in ipairs(due) do 
-	 redis.call('ZREM' , KEYS[1] , job)
-	 redis.call('LPUSH' , KEYS[2] , job)
-	 end
-	 return due
-`
-
 type RedisQueue struct {
 	client *redis.Client
 	key    string
@@ -117,3 +105,15 @@ func (rq *RedisQueue) RunPromoter(ctx context.Context, interval time.Duration) {
 		}
 	}
 }
+
+const promoteScript = `
+	local due = redis.call('ZRANGEBYSCORE' , KEYS[1] , '-inf' , ARGV[1])
+	if #due == 0 then
+	 return{}
+	end
+	for i , job in ipairs(due) do 
+	 redis.call('ZREM' , KEYS[1] , job)
+	 redis.call('LPUSH' , KEYS[2] , job)
+	 end
+	 return due
+`
