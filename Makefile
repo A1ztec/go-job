@@ -1,4 +1,4 @@
-.PHONY: build test test-race lint run up down fmt vet
+.PHONY: build test test-race lint run up down fmt vet buildc
 
 build:
 	go build -o bin/worker ./cmd/worker
@@ -21,8 +21,11 @@ vet:
 lint: fmt vet
 	golangci-lint run
 
+buildc:
+	docker build .
+
 up:
-	docker compose up --build
+	docker compose up -d
 
 down:
 	docker compose down

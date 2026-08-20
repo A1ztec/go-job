@@ -33,7 +33,9 @@ func main() {
 		return nil
 	})
 	r.Register("test", handler)
-	wg.Add(1)
+	r.Register("cleanup", handler)
+
+	// wg.Add(1)
 	// go func() {
 	// 	defer wg.Done()
 	// 	for i := 0; i < 30; i++ {
@@ -46,6 +48,13 @@ func main() {
 	// 	}
 	// }()
 	p := worker.NewPool(q, r, 3)
+	scheduler := worker.NewScheduler(q)
+	scheduler.Register("cleanup", nil, 10*time.Second)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scheduler.Run(ctx, time.Second)
+	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
