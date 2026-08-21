@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -10,8 +11,10 @@ import (
 	"time"
 
 	"github.com/A1ztec/go-job/internal/job"
+	"github.com/A1ztec/go-job/internal/metrics"
 	"github.com/A1ztec/go-job/internal/queue"
 	"github.com/A1ztec/go-job/internal/worker"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
@@ -29,27 +32,44 @@ func main() {
 	q := queue.NewRedisQueue(client, fmt.Sprintf("test-%d", time.Now().UnixNano()))
 	r := worker.NewRegistry()
 	handler := job.HandlerFunc(func(ctx context.Context, j *job.Job) error {
+		time.Sleep(4 * time.Second)
 		log.Info().Str("job_id", j.ID).Msg("processed job")
 		return nil
 	})
 	r.Register("test", handler)
 	r.Register("cleanup", handler)
 
-	// wg.Add(1)
-	// go func() {
-	// 	defer wg.Done()
-	// 	for i := 0; i < 30; i++ {
-	// 		time.Sleep(2 * time.Second)
-	// 		j := job.New("test", nil)
-	// 		err := q.Enqueue(ctx, j)
-	// 		if err != nil {
-	// 			log.Error().Err(err).Msg("error happen in enqueue a job")
-	// 		}
-	// 	}
-	// }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 30; i++ {
+			j := job.New("test", nil)
+			err := q.Enqueue(ctx, j)
+			if err != nil {
+				log.Error().Err(err).Msg("error happen in enqueue a job")
+			}
+		}
+	}()
 	p := worker.NewPool(q, r, 3)
 	scheduler := worker.NewScheduler(q)
 	scheduler.Register("cleanup", nil, 10*time.Second)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				n, err := q.Len(ctx)
+				if err == nil {
+					metrics.QueueDepth.Set(float64(n))
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -65,6 +85,12 @@ func main() {
 	go func() {
 		defer wg.Done()
 		q.RunPromoter(ctx, time.Second)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		http.Handle("/metrics", promhttp.Handler())
+		http.ListenAndServe(":2112", nil)
 	}()
 	wg.Wait()
 	if err := q.Shutdown(ctx); err != nil {

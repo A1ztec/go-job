@@ -3,10 +3,12 @@ package worker
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/A1ztec/go-job/internal/job"
+	"github.com/A1ztec/go-job/internal/metrics"
 	"github.com/A1ztec/go-job/internal/queue"
 )
 
@@ -53,15 +55,27 @@ func (p *Pool) work(ctx context.Context, wId int) {
 			continue
 		}
 		func() {
+			metrics.WorkersBusy.Inc()
+			defer metrics.WorkersBusy.Dec()
+			start := time.Now()
+			defer func() {
+				metrics.JobDuration.WithLabelValues(j.Type).Observe(time.Since(start).Seconds())
+			}()
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("worker %d: recovered from panic: %v", wId, r)
+					metrics.JobsProcessed.WithLabelValues(j.Type, "panics").Inc()
+					j.Attempts = j.MaxAttempts - 1
+					p.handleFailure(ctx, j)
 				}
 			}()
 			if err := handler.Handle(ctx, j); err != nil {
 				log.Error().Int("worker_id", wId).Str("job_id", j.ID).Err(err).Msg("job failed")
 				p.handleFailure(ctx, j)
+				metrics.JobsProcessed.WithLabelValues(j.Type, "failure").Inc()
+				return
 			}
+			metrics.JobsProcessed.WithLabelValues(j.Type, "success").Inc()
 		}()
 	}
 }
