@@ -43,7 +43,7 @@ func (s *Scheduler) Register(jobType string, payload []byte, interval time.Durat
 }
 
 func (s *Scheduler) Run(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
