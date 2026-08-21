@@ -25,6 +25,10 @@ func NewMemoryQueue(bufferSize int) *memoryQueue {
 	}
 }
 
+func (mq *memoryQueue) Len(ctx context.Context) (int, error) {
+	return len(mq.jobs), nil
+}
+
 func (mq *memoryQueue) Enqueue(ctx context.Context, j *job.Job) error {
 	mq.mu.Lock()
 	if mq.closed {

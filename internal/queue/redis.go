@@ -25,6 +25,14 @@ func NewRedisQueue(client *redis.Client, key string) *RedisQueue {
 	}
 }
 
+func (rq *RedisQueue) Len(ctx context.Context) (int, error) {
+	l, err := rq.client.LLen(ctx, rq.key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("get queue length: %w", err)
+	}
+	return int(l), err
+}
+
 func (rq *RedisQueue) push(ctx context.Context, key string, j *job.Job) error {
 	p, err := json.Marshal(j)
 	if err != nil {
@@ -43,6 +51,7 @@ func (rq *RedisQueue) Enqueue(ctx context.Context, j *job.Job) error {
 
 func (rq *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
 	var j job.Job
+	time.Sleep(4 * time.Second)
 	s, err := rq.client.BRPop(ctx, 0, rq.key).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to dqueue job from the queue : %w", err)

@@ -19,4 +19,5 @@ type Queue interface {
 	Shutdown(ctx context.Context) error
 	ScheduleAfter(ctx context.Context, j *job.Job, at time.Duration) error
 	SendToDLQ(ctx context.Context, j *job.Job) error
+	Len(ctx context.Context) (int, error)
 }
